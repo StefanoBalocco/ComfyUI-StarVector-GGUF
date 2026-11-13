@@ -1,0 +1,36 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit (Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU test dependencies
+        run: |
+          python -m pip install numpy Pillow beautifulsoup4 lxml cairosvg safetensors vtracer scipy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install the reference implementation for comparison tests
+        run: |
+          python -m pip install 'transformers>=5,<6'
+          python -c 'import transformers; assert transformers.__version__.split(".")[0] == "5", transformers.__version__'
+      - name: Check Python syntax
+        run: python -m compileall -q *.py tools tests
+      - name: Verify tool CLIs import without GPU
+        run: |
+          python tools/compare_original_1b.py --help > /dev/null
+          python tools/tune_kernels.py --help > /dev/null
+          python tools/starvector_safetensors_to_gguf.py --help > /dev/null
+      - name: Check frontend JavaScript syntax
+        run: node --check js/svg_previews.js
+      - name: Test SVG frontend preview behavior
+        run: node --test tests/test_svg_previews.cjs
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -v

@@ -1,0 +1,14 @@
+# Install with the same Python interpreter as ComfyUI.
+gguf>=0.13.0
+tokenizers>=0.19
+Pillow>=9.0
+numpy>=1.24
+# Repair incomplete or malformed generated SVG.
+beautifulsoup4>=4.12
+lxml>=4.9
+cairosvg>=2.7
+# Trace the input image when StarVector fails to complete an SVG.
+vtracer>=0.6
+# Find error regions for refine (ComfyUI already requires it).
+scipy
+# ComfyUI supplies torch. Triton is optional.
