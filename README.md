@@ -79,17 +79,17 @@ The node validates the generated XML before it reaches the SVG socket. It logs e
 
 ## Refine
 
-Refine fits the SVG to the input image, as LIVE (Ma et al., CVPR 2022) does. CairoSVG resolves the SVG (CSS, `<use>`, transforms, arcs, clip paths) into cubic Bézier paths. A differentiable rasterizer renders them at 512 px on the longest side: Triton kernels on a CUDA GPU, PyTorch on the CPU and other devices, with the same coverage and gradients. Adam moves the control points and adjusts fill and stroke colors and stroke widths to minimize the squared error against the input image composited on white. Straight segments (polygons, rectangles, `L`, `H`, `V`) stay straight: only their endpoints move, and they are written back as `L`.
+Refine fits the SVG to the input image, as LIVE (Ma et al., CVPR 2022) does. CairoSVG resolves the SVG (CSS, `<use>`, transforms, arcs, clip paths) into cubic Bézier paths. A differentiable rasterizer renders them at 512 px on the longest side: Triton kernels on a CUDA GPU, PyTorch on the CPU and other devices, with the same coverage and gradients. Adam moves the control points and adjusts fill and stroke colors and stroke widths to minimize the squared error against the input image composited on white. Straight segments (polygons, rectangles, `L`, `H`, `V`) stay straight: only their endpoints move, and they are written back as straight segments.
 
 `refine_steps` sets the steps of each fit round. The first round fits the existing shapes. With `refine_paths`, each added path starts a further round. As in LIVE, each path goes on top, starting from the largest connected region of one quantized image color that the SVG still renders wrong, traced with VTracer. Paths keep coming while such a region of at least 16 pixels exists, up to 16 paths: about 10 on a shaded illustration, 0-1 on a flat icon.
 
 Refine applies to complete StarVector SVGs and to VTracer's traces. When refining, VTracer fits fewer, longer curves (`corner_threshold=90`, `length_threshold=8`, `splice_threshold=60`): the trace is about 20% smaller and, after refining, as accurate as the default tracing refined.
 
-The refined SVG is flat: paths in 512 px units, with transforms and CSS resolved and metadata dropped. Strokes keep miter joins (with the SVG miter limit), round joins, and butt, square and round caps; bevel joins become round. Documents with gradients, patterns, text, images, masks, filters or dashed strokes come back unchanged, with a warning.
+The refined SVG is flat: paths in 512 px units, with transforms and CSS resolved and metadata dropped. Each path command takes absolute or relative coordinates, whichever is shorter, with up to two decimals. Strokes keep miter joins (with the SVG miter limit), round joins, and butt, square and round caps; bevel joins become round. Documents with gradients, patterns, text, images, masks, filters or dashed strokes come back unchanged, with a warning.
 
-On six flat icons, 100 steps leave 1-1.5% of the squared error of the StarVector or VTracer SVG, and 300 steps leave 0.5-0.8%, as much as 1000 steps. Added paths pay off where the SVG misses detail: on VTracer's trace of a shaded cinnamon illustration, 100 steps alone leave 65% of the error, and the 10 added paths leave 9%.
+On six flat icons, 100 steps leave 0.3-2.3% of the squared error of the StarVector SVG, and 300 steps 0-1.8%, as much as 1000 steps. Added paths pay off where the SVG misses detail: on VTracer's trace of a shaded cinnamon illustration, 100 steps alone leave 66% of the error, and the 10 added paths leave 10%.
 
-With the defaults (100 steps, `refine_paths` on), refine takes 0.4-0.9 s per flat icon and 8 s for the cinnamon on an RTX 3060, and 2.5-3 s and 3 minutes on 5 CPU threads. Set `refine_steps` to 300 for a closer fit, or turn `refine_paths` off for a single round.
+With the defaults (100 steps, `refine_paths` on), refine takes 0.3-1.1 s per flat icon and 7 s for the cinnamon on an RTX 3060, and 2-14 s and 3-4 minutes on 5 CPU threads. Set `refine_steps` to 300 for a closer fit, or turn `refine_paths` off for a single round.
 
 ## Attention
 

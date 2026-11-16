@@ -64,8 +64,8 @@ def _device_path(context):
             points, straight = [coords], []
         elif kind == cairocffi.PATH_LINE_TO:
             a = np.array(points[-1])
-            b = np.array(coords)
-            points += [tuple(a + (b - a) / 3), tuple(a + (b - a) * 2 / 3), coords]
+            b = np.array(coords[-2:])
+            points += [tuple(a + (b - a) / 3), tuple(a + (b - a) * 2 / 3), tuple(b)]
             straight.append(True)
         elif kind == cairocffi.PATH_CURVE_TO:
             points += [coords[0:2], coords[2:4], coords[4:6]]
@@ -246,23 +246,61 @@ def capture_svg(markup: str, width: int, height: int) -> Scene:
     return scene
 
 
-def _number(value: float) -> str:
-    text = f"{value:.3f}".rstrip("0").rstrip(".")
+# Decimals of the written coordinates, in pixels of the captured scene.
+DECIMALS = 2
+
+
+def _number(value: float, decimals: int = 3) -> str:
+    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    if text.startswith(("0.", "-0.")):
+        text = text.replace("0.", ".", 1)
     return "0" if text == "-0" else text
 
 
+def _command(previous, token, letter, values):
+    """Text of one path command after the command `previous` and the token
+    `token`: the letter only when it does not repeat, a space only where a
+    number would run into the one before it."""
+    text = "" if letter == previous else letter
+    token = letter if text else token
+    for value in (_number(value, DECIMALS) for value in values):
+        if not (token.isalpha() or value[0] == "-" or value[0] == "." and "." in token):
+            text += " "
+        text += value
+        token = value
+    return text, token
+
+
 def _path_data(subpaths, closed, lines) -> str:
-    parts = []
+    """Each command absolute or relative, whichever is shorter. Relative
+    coordinates are differences of rounded absolute ones, so rounding errors
+    do not add up along a path."""
+    parts, previous, token, current = [], "", "", np.zeros(2)
     for points, is_closed, straight in zip(subpaths, closed, lines):
-        parts.append("M" + " ".join(map(_number, points[0])))
+        points = np.round(points.astype(np.float64), DECIMALS)
+        commands = [(("M", points[0]), ("m", points[0] - current))]
+        start = current = points[0]
         for i, line in zip(range(1, len(points), 3), straight):
-            if line:
-                parts.append("L" + " ".join(map(_number, points[i + 2])))
+            end = points[i + 2]
+            if not line:
+                commands.append((("C", points[i:i + 3].ravel()), ("c", (points[i:i + 3] - current).ravel())))
+            elif end[1] == current[1]:
+                commands.append((("H", end[:1]), ("h", end[:1] - current[0])))
+            elif end[0] == current[0]:
+                commands.append((("V", end[1:]), ("v", end[1:] - current[1])))
             else:
-                parts.append("C" + " ".join(_number(v) for p in points[i:i + 3] for v in p))
+                commands.append((("L", end), ("l", end - current)))
+            current = end
+        for candidates in commands:
+            text, token = min((_command(previous, token, letter, values) for letter, values in candidates), key=lambda pair: len(pair[0]))
+            parts.append(text)
+            if text[0].isalpha():
+                # Coordinate pairs after a moveto are linetos.
+                previous = {"M": "L", "m": "l"}.get(text[0], text[0])
         if is_closed:
-            parts.append("Z")
-    return " ".join(parts)
+            parts.append("z")
+            previous, token, current = "z", "z", start
+    return "".join(parts)
 
 
 def _color(rgba) -> str:

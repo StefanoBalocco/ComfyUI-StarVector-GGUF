@@ -624,32 +624,40 @@ def _kites(points, widths, corners, layers, limits):
 
 
 class _TorchComposite(torch.autograd.Function):
-    """_Composite in PyTorch: each layer's visible alpha is its alpha times the
-    transmittance of the layers above it, and white shows through all of them."""
+    """_Composite in PyTorch, one layer at a time like the kernels: no buffer
+    of all layers in the forward pass, one for the transmittances in the backward."""
 
     @staticmethod
     def forward(ctx, alpha, colors):
         layers, height, width = alpha.shape
         alpha = alpha.reshape(layers, -1)
-        through = (1 - alpha).flip(0).cumprod(0).flip(0)
-        above = torch.cat([through[1:], through.new_ones(1, height * width)])
-        visible = alpha * above
-        ctx.save_for_backward(alpha, colors, above, visible)
+        out = alpha.new_ones(3, height * width)
+        for layer in range(layers):
+            out.lerp_(colors[layer][:, None], alpha[layer])
+        ctx.save_for_backward(alpha, colors)
         ctx.size = height, width
-        return (colors.T @ visible + through[0]).view(3, height, width)
+        return out.view(3, height, width)
 
     @staticmethod
     def backward(ctx, grad_out):
-        alpha, colors, above, visible = ctx.saved_tensors
+        alpha, colors = ctx.saved_tensors
         grad_out = grad_out.reshape(3, -1)
+        # Transmittance of the layers above each layer, built from the top.
+        above = torch.empty_like(alpha)
+        through = torch.ones_like(alpha[0])
+        for layer in range(len(alpha) - 1, -1, -1):
+            above[layer] = through
+            through = through * (1 - alpha[layer])
         toward = colors @ grad_out
         # grad_out . composite below each layer, built bottom-up from white.
         below = grad_out.sum(0)
         grad_alpha = torch.empty_like(alpha)
+        grad_colors = torch.empty_like(colors)
         for layer in range(len(alpha)):
             torch.mul(above[layer], toward[layer] - below, out=grad_alpha[layer])
+            grad_colors[layer] = grad_out @ (alpha[layer] * above[layer])
             below = torch.lerp(below, toward[layer], alpha[layer])
-        return grad_alpha.view(-1, *ctx.size), visible @ grad_out.T
+        return grad_alpha.view(-1, *ctx.size), grad_colors
 
 
 class _Plan:

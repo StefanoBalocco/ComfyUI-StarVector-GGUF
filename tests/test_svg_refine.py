@@ -61,6 +61,15 @@ def square(x):
     return SVG + f'<rect x="{x}" y="14" width="24" height="30" fill="#cc3322"/></svg>'
 
 
+def render(scene, device):
+    plan = _Plan(scene, device)
+    return plan.render(plan.points, plan.colors, plan.widths)
+
+
+def error(scene, target):
+    return (render(scene, target.device) - target).square().mean().item()
+
+
 class RefineSVGTests:
     def test_rasterizer_matches_cairosvg(self):
         for name, body in CASES.items():
@@ -158,6 +167,7 @@ class RefineSVGTests:
         self.assertNotIn("C", refined.split('d="')[1].split('"')[0])
         self.assertLess((raster(refined) - raster(star.replace("32,6 ", "32,2 "))).abs().mean(), (raster(star) - raster(star.replace("32,6 ", "32,2 "))).abs().mean())
 
+
     def test_refine_keeps_sharp_miter_tips(self):
         star = SVG + STAR + "</svg>"
         moved = star.replace("32,6 ", "32,3 ").replace("6,25 25,25", "3,27 25,25")
@@ -184,6 +194,9 @@ class RefineSVGTests:
         calls = []
         refine_svg(square(14), raster(square(18)).permute(1, 2, 0).to(self.device), 7, 0, lambda: calls.append(1), resolution=64)
         self.assertEqual(len(calls), 7)
+
+
+
 
 
 class RefineSVGCPUTests(RefineSVGTests, unittest.TestCase):

@@ -98,19 +98,35 @@ class SVGSceneTests(unittest.TestCase):
                 scene = capture_svg(SVG + 'viewBox="0 0 64 64">' + body + "</svg>", 64, 64)
                 self.assertIn(reason, scene.unsupported)
 
+
     def test_serialization_format(self):
         markup = SVG + 'viewBox="0 0 64 64"><defs><clipPath id="c"><rect width="32" height="64"/></clipPath></defs><g clip-path="url(#c)"><path d="M0 0H3" fill="none" stroke="#102030" stroke-opacity="0.5" stroke-width="2.5"/><rect width="2" height="2" fill="red"/></g></svg>'
         svg = scene_to_svg(capture_svg(markup, 64, 64))
         self.assertTrue(svg.startswith('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'))
         self.assertEqual(svg.count("<clipPath"), 1)
         self.assertEqual(svg.count('<g clip-path="url(#c0)">'), 2)
-        self.assertIn('fill="none" stroke="#102030" stroke-opacity="0.5" stroke-width="2.5"', svg)
+        self.assertIn('fill="none" stroke="#102030" stroke-opacity=".5" stroke-width="2.5"', svg)
         # Straight segments stay lines, curves stay cubic.
-        self.assertIn('d="M0 0 L3 0"', svg)
-        self.assertIn('d="M0 0 L2 0 L2 2 L0 2 Z"', svg)
+        self.assertIn('d="M0 0H3"', svg)
+        self.assertIn('d="M0 0H2V2H0z"', svg)
         scene = capture_svg(SVG + 'viewBox="0 0 64 64"><path d="M0 0L8 0C8 4 4 8 0 8Z"/></svg>', 64, 64)
         self.assertEqual(scene.shapes[0].lines[0].tolist(), [True, False])
-        self.assertIn("M0 0 L8 0 C8 4 4 8 0 8 Z", scene_to_svg(scene))
+        self.assertIn('d="M0 0H8C8 4 4 8 0 8z"', scene_to_svg(scene))
+
+    def test_shortest_path_data(self):
+        cases = {
+            "relative, implicit repeats, separators": ("M10 10C10.5 10.25 11 10.75 12 11C13 11.25 13.5 12 14 12.5L11.25 11.75Z", "M10 10c.5.25 1 .75 2 1 1 .25 1.5 1 2 1.5l-2.75-.75z"),
+            "moveto after closepath": ("M0 0H4V4ZM10 10H14V14Z", "M0 0H4V4zM10 10h4v4z"),
+            "moveto after open subpath": ("M0 0H4M10 10H14", "M0 0H4m6 10h4"),
+        }
+        for name, (data, expected) in cases.items():
+            with self.subTest(name):
+                markup = SVG + f'viewBox="0 0 64 64"><path d="{data}" fill="none" stroke="black"/></svg>'
+                scene = capture_svg(markup, 64, 64)
+                svg = scene_to_svg(scene)
+                self.assertIn(f'd="{expected}"', svg)
+                for written, captured in zip(capture_svg(svg, 64, 64).shapes[0].subpaths, scene.shapes[0].subpaths):
+                    np.testing.assert_allclose(written, captured, atol=1e-3)
 
     def test_stroke_join_capture(self):
         cases = {
